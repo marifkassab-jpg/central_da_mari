@@ -353,7 +353,48 @@ const listH=d.items.length?`<div style="background:var(--surface);border:1px sol
 ${d.items.map(i=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border)"><span style="font-size:11px;color:var(--text2);flex:1">${esc(i.text)}</span>${renderTagSpan(i.tag)}<span class="card-type ${i.type==='projeto'?'type-projeto':'type-task'}">${i.type==='projeto'?'Projeto':'Task'}</span><span style="font-size:9px;color:var(--text3)">${fmtDate(i.doneAt)}</span></div>`).join("")}
 </div>`:`<div style="text-align:center;padding:40px;color:var(--text3);font-size:12px">Nenhuma tarefa conclu\u00edda neste m\u00eas</div>`;
 
-return monthSel+summaryH+barsH+tagBarsH+histH+listH;
+// Evolution graph — concluídas/mês, % sobre anterior, inadimplentes>20d
+const evoMonths=months.slice(0,8).reverse();
+const evoData=evoMonths.map((m,i)=>{
+  const md=getMonthData(m);
+  // Count stale tasks (>20 days old, not done) as of end of that month
+  const monthEnd=new Date(parseInt(m.split("-")[0]),parseInt(m.split("-")[1]),0);
+  const staleCount=S.tasks.filter(t=>!t.done&&t.createdAt&&daysBetween(t.createdAt,m+"-28")>20).length;
+  // For current/future months, count current stale
+  const staleNow=m===getMonthKey(new Date())?S.tasks.filter(t=>!t.done&&t.createdAt&&daysBetween(t.createdAt,today())>20).length:staleCount;
+  return{m,label:getMonthLabel(m).split(" ")[0],completed:md.total,stale:staleNow};
+});
+// Calculate % change
+evoData.forEach((e,i)=>{if(i===0)e.pctChange=null;else{const prev=evoData[i-1].completed;e.pctChange=prev?Math.round((e.completed-prev)/prev*100):e.completed>0?100:0;}});
+const evoMax=Math.max(...evoData.map(e=>Math.max(e.completed,e.stale)),1);
+
+const evoH=evoData.length>1?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:16px;margin-bottom:16px">
+<div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Evolu\u00e7\u00e3o mensal</div>
+<div style="font-size:9px;color:var(--text3);margin-bottom:14px">Conclu\u00eddas vs inadimplentes (&gt;20 dias sem conclus\u00e3o)</div>
+<div style="display:flex;align-items:flex-end;gap:6px;height:140px">
+${evoData.map(e=>{
+  const cH=Math.max(Math.round(e.completed/evoMax*100),e.completed?4:0);
+  const sH=Math.max(Math.round(e.stale/evoMax*100),e.stale?4:0);
+  const pctLabel=e.pctChange!==null?(e.pctChange>=0?`<span style="color:var(--green)">+${e.pctChange}%</span>`:`<span style="color:var(--coral)">${e.pctChange}%</span>`):'';
+  return`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+    <div style="font-size:8px;min-height:14px">${pctLabel}</div>
+    <div style="font-size:10px;font-weight:600;color:var(--text2)">${e.completed}</div>
+    <div style="width:100%;display:flex;gap:2px;justify-content:center;align-items:flex-end">
+      <div style="flex:1;height:${cH}px;background:var(--green);border-radius:3px;opacity:.6"></div>
+      <div style="flex:1;height:${sH}px;background:var(--coral);border-radius:3px;opacity:.5"></div>
+    </div>
+    ${e.stale?`<div style="font-size:8px;color:var(--coral);opacity:.7">${e.stale}</div>`:`<div style="height:12px"></div>`}
+    <div style="font-size:9px;color:var(--text3)">${e.label}</div>
+  </div>`;}).join("")}
+</div>
+<div style="display:flex;gap:14px;margin-top:10px;justify-content:center">
+  <span style="font-size:9px;color:var(--text3);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:var(--green);opacity:.6"></span>Conclu\u00eddas</span>
+  <span style="font-size:9px;color:var(--text3);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:var(--coral);opacity:.5"></span>Inadimplentes &gt;20d</span>
+  <span style="font-size:9px;color:var(--text3);display:flex;align-items:center;gap:4px">% = varia\u00e7\u00e3o vs m\u00eas anterior</span>
+</div>
+</div>`:'';
+
+return monthSel+summaryH+evoH+barsH+tagBarsH+histH+listH;
 }
 
 function renderTagSpan(tag){if(!tag)return"";const cls=tagClass(tag);const st=tagStyle(tag);if(cls)return`<span class="card-tag ${cls}">${esc(tag)}</span>`;if(st)return`<span class="card-tag" style="${st}">${esc(tag)}</span>`;return`<span class="card-tag" style="background:rgba(255,255,255,.05);color:var(--text3)">${esc(tag)}</span>`;}
@@ -402,9 +443,9 @@ const filterH=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12p
 const navH=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><button class="btn-c" onclick="S.calMonth='${prevM}';S.calDetail=null;render()" style="padding:4px 10px">\u2190</button><span style="font-size:14px;font-weight:600;min-width:140px;text-align:center">${monthNames[cmo-1]} ${cy}</span><button class="btn-c" onclick="S.calMonth='${nextM}';S.calDetail=null;render()" style="padding:4px 10px">\u2192</button>${S.calDetail?`<span style="font-size:11px;color:var(--coral);margin-left:8px">Selecionado: ${fmtDate(S.calDetail)}</span>`:''}</div>`;
 
 const dayNames=["Dom","Seg","Ter","Qua","Qui","Sex","S\u00e1b"];
-let headerH=dayNames.map(d=>`<div style="font-size:10px;font-weight:600;color:var(--text3);text-align:center;padding:4px;text-transform:uppercase">${d}</div>`).join("");
+let headerH=dayNames.map(d=>`<div style="font-size:10px;font-weight:600;color:var(--text3);text-align:center;padding:6px 4px;text-transform:uppercase;border-bottom:1px solid var(--border)">${d}</div>`).join("");
 let cells="";
-for(let i=0;i<firstDay;i++)cells+=`<div style="padding:4px"></div>`;
+for(let i=0;i<firstDay;i++)cells+=`<div style="padding:4px;border:1px solid var(--border);border-radius:0;opacity:.3"></div>`;
 for(let d=1;d<=daysInMonth;d++){
   const dateStr=`${cy}-${String(cmo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   const dayTasks=fTasks.filter(t=>t.date===dateStr||t.createdAt===dateStr||(t.doneAt&&t.doneAt.startsWith(dateStr)));
@@ -412,16 +453,21 @@ for(let d=1;d<=daysInMonth;d++){
   const pct=dayTasks.length?Math.round(doneTasks.length/dayTasks.length*100):0;
   const isToday=dateStr===today();
   const isSel=S.calDetail===dateStr;
-  const bg=isSel?'var(--coral-bg)':dayTasks.length?(pct===100?'var(--green-bg)':pct>0?'var(--amber-bg)':'var(--surface2)'):'transparent';
-  const border=isSel?'border:1.5px solid var(--coral)':isToday?'border:1px solid var(--coral)':'border:1px solid transparent';
-  const dots=dayTasks.slice(0,3).map(t=>{const cls=tagClass(t.tag);return`<div style="width:5px;height:5px;border-radius:50%;${cls?'':'background:var(--text3);'}opacity:.7" class="${cls||''}"></div>`;}).join("");
-  cells+=`<div style="padding:4px;min-height:70px;background:${bg};border-radius:8px;${border};transition:all .12s;cursor:pointer" onclick="S.calDetail=S.calDetail==='${dateStr}'?null:'${dateStr}';render()">
-    <div style="font-size:11px;font-weight:${isToday||isSel?'700':'500'};color:${isSel?'var(--coral)':isToday?'var(--coral)':'var(--text2)'};margin-bottom:3px">${d}</div>
-    ${dayTasks.length?`<div style="display:flex;gap:2px;flex-wrap:wrap">${dots}</div><div style="font-size:8px;color:var(--text3);margin-top:2px">${doneTasks.length}/${dayTasks.length}</div>`:''}
+  const bg=isSel?'var(--coral-bg)':dayTasks.length?(pct===100?'var(--green-bg)':pct>0?'var(--amber-bg)':'var(--surface)'):'var(--surface)';
+  const border=isSel?'border:1.5px solid var(--coral)':isToday?'border:1.5px solid var(--coral)':'border:1px solid var(--border)';
+  const dots=dayTasks.slice(0,4).map(t=>{const cls=tagClass(t.tag);return`<div style="width:5px;height:5px;border-radius:50%;${cls?'':'background:var(--text3);'}opacity:.7" class="${cls||''}"></div>`;}).join("");
+  const todayLabel=isToday?`<span style="font-size:7px;background:var(--coral);color:#fff;padding:0 4px;border-radius:3px;margin-left:3px;font-weight:700">HOJE</span>`:'';
+  cells+=`<div style="padding:5px;min-height:76px;background:${bg};border-radius:6px;${border};transition:all .12s;cursor:pointer" onclick="S.calDetail=S.calDetail==='${dateStr}'?null:'${dateStr}';render()">
+    <div style="font-size:11px;font-weight:${isToday||isSel?'700':'500'};color:${isSel?'var(--coral)':isToday?'var(--coral)':'var(--text2)'};margin-bottom:4px;display:flex;align-items:center">${d}${todayLabel}</div>
+    ${dayTasks.length?`<div style="display:flex;gap:2px;flex-wrap:wrap">${dots}</div><div style="font-size:8px;color:${pct===100?'var(--green)':pct>0?'var(--amber)':'var(--text3)'};margin-top:3px;font-weight:500">${doneTasks.length}/${dayTasks.length}</div>`:''}
   </div>`;
 }
+// Fill remaining cells to complete the grid row
+const totalCells=firstDay+daysInMonth;
+const remainder=totalCells%7;
+if(remainder>0)for(let i=0;i<7-remainder;i++)cells+=`<div style="padding:4px;border:1px solid var(--border);border-radius:0;opacity:.3"></div>`;
 
-const gridH=`<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">${headerH}${cells}</div>`;
+const gridH=`<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:6px;overflow:hidden">${headerH}${cells}</div>`;
 
 // Day detail panel
 let detailH="";
@@ -555,7 +601,7 @@ return`<div class="okr-card"><div class="okr-title"><div class="okr-icon" style=
 const trashCnt=S.trash.length?`<span class="badge">${S.trash.length}</span>`:"";
 document.getElementById("app").innerHTML=`
 <nav class="nav"><div class="nav-brand"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16" stroke="var(--coral)" stroke-width="2.5" stroke-linecap="round" opacity=".7"/><path d="M4 12h16" stroke="var(--coral)" stroke-width="2.5" stroke-linecap="round" opacity=".7"/><path d="M4 17h10" stroke="var(--coral)" stroke-width="2.5" stroke-linecap="round" opacity=".7"/></svg><span>Central da Mari</span></div><div class="nav-right">${S.streak?`<span class="streak">${S.streak} conclu\u00eddas</span>`:''}<button class="nav-btn" onclick="exportData()" title="Baixar backup JSON">\u2b07 Exportar</button><button class="nav-btn" onclick="importData()" title="Restaurar de um backup">\u2b06 Importar</button><button class="nav-btn ${S.showTrash?'active':''}" onclick="S.showTrash=!S.showTrash;render()">Lixeira${trashCnt}</button><button class="nav-btn" onclick="resetAll()">Resetar</button></div></nav>
-<div class="tabs"><button class="tab ${S.page==='board'?'active':''}" onclick="S.page='board';render()">Board</button><button class="tab ${S.page==='cal'?'active':''}" onclick="S.page='cal';render()">Calend\u00e1rio</button><button class="tab ${S.page==='notes'?'active':''}" onclick="S.page='notes';render()">Notas</button><button class="tab ${S.page==='okrs'?'active':''}" onclick="S.page='okrs';render()">OKRs</button><button class="tab ${S.page==='perf'?'active':''}" onclick="S.page='perf';render()">Performance</button></div>
+<div class="tabs"><button class="tab ${S.page==='board'?'active':''}" onclick="S.page='board';render()">Board</button><button class="tab ${S.page==='cal'?'active':''}" onclick="S.page='cal';render()">Calend\u00e1rio</button><button class="tab ${S.page==='perf'?'active':''}" onclick="S.page='perf';render()">Performance</button><button class="tab ${S.page==='notes'?'active':''}" onclick="S.page='notes';render()">Notas</button><button class="tab ${S.page==='okrs'?'active':''}" onclick="S.page='okrs';render()">OKRs</button></div>
 <div class="page ${S.page==='board'?'visible':''}">
   <div class="progress"><div class="progress-top"><span>${done} de ${total} feitas</span><span class="pct">${pct}%</span></div><div class="pbar"><div class="pfill" style="width:${pct}%;background:${pct===100?'var(--green)':'var(--coral)'}"></div></div></div>
   ${trashH}<div class="filters">${filtersH}</div><div class="board">${colsH}</div>
